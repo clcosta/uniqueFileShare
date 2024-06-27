@@ -3,15 +3,33 @@ package main
 import (
 	"fmt"
 	"github.com/clcosta/uniqueShareFile/src/database"
-	uuid "github.com/google/uuid"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 )
+
+func saveFile(filepath string, file multipart.File) error {
+	dst, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteFile(filepath string) error {
+	return os.Remove(filepath)
+}
 
 func homePage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "src/assets/index.html")
@@ -53,19 +71,7 @@ func uploadForm(db *gorm.DB) http.HandlerFunc {
 		defer file.Close()
 
 		filePath := filepath.Join("tmp", handler.Filename)
-		fmt.Println(filePath)
-		dst, err := os.Create(filePath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer dst.Close()
-
-		if _, err := io.Copy(dst, file); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
+		saveFile(filePath, file)
 		link := uuid.New().String()
 
 		fileLink := database.FileLink{
@@ -90,7 +96,6 @@ func downloadFile(db *gorm.DB) http.HandlerFunc {
 		vars := mux.Vars(r)
 		link := vars["link"]
 		var fileLink database.FileLink
-		fmt.Println("AQUI", link)
 
 		res := db.Where("link = ?", link).First(&fileLink)
 		if res.Error != nil {
@@ -98,7 +103,6 @@ func downloadFile(db *gorm.DB) http.HandlerFunc {
 			return
 		}
 		if res.RowsAffected == 0 {
-			fmt.Println("Error: Link not found")
 			http.Error(w, "Link not found", http.StatusNotFound)
 			return
 		}
@@ -106,22 +110,30 @@ func downloadFile(db *gorm.DB) http.HandlerFunc {
 		if fileLink.Expired || fileLink.ExpiresAt.Before(time.Now()) {
 			fileLink.Expired = true
 			db.Save(&fileLink)
+
+			deleteFile(fileLink.PathToFile)
+
 			http.Error(w, "Link expired", http.StatusUnprocessableEntity)
 			return
 		}
-
 		file, err := os.Open(fileLink.PathToFile)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer file.Close()
+		w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(fileLink.PathToFile))
+		w.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeContent(w, r, filepath.Base(fileLink.PathToFile), time.Now(), file)
+		file.Close()
 
 		fileLink.Expired = true
 		db.Save(&fileLink)
 
-		w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(fileLink.PathToFile))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeContent(w, r, filepath.Base(fileLink.PathToFile), time.Now(), file)
+		err = deleteFile(fileLink.PathToFile)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 	}
 }
