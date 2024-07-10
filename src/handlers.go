@@ -2,34 +2,21 @@ package main
 
 import (
 	"fmt"
-	"github.com/clcosta/uniqueShareFile/src/database"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"gorm.io/gorm"
-	"io"
-	"mime/multipart"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/clcosta/uniqueShareFile/src/background"
+	"github.com/clcosta/uniqueShareFile/src/database"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 )
 
-func saveFile(filepath string, file multipart.File) error {
-	dst, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		return err
-	}
-	return nil
-}
-
-func deleteFile(filepath string) error {
-	return os.Remove(filepath)
-}
+const TimeToDeleteFileInSeconds = 60 * 5 // 5 minutes
+const FileSizeLimit = 2 << 20            // 2MB
 
 func homePage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "src/assets/index.html")
@@ -55,9 +42,9 @@ func successUploadPage(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
-func uploadForm(db *gorm.DB) http.HandlerFunc {
+func uploadForm(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := r.ParseMultipartForm(2 << 20) // Define limit to 2MB
+		err := r.ParseMultipartForm(FileSizeLimit) // Define limit to 2MB
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -71,7 +58,12 @@ func uploadForm(db *gorm.DB) http.HandlerFunc {
 		defer file.Close()
 
 		filePath := filepath.Join("tmp", handler.Filename)
-		saveFile(filePath, file)
+		filePath, err = saveFile(filePath, file)
+		if err != nil {
+			log.Println("Error saving file", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		link := uuid.New().String()
 
 		fileLink := database.FileLink{
@@ -86,12 +78,15 @@ func uploadForm(db *gorm.DB) http.HandlerFunc {
 			http.Error(w, res.Error.Error(), http.StatusInternalServerError)
 			return
 		}
+		job := background.Job{Identifier: link, Job: deleteFile, Args: []interface{}{filePath, TimeToDeleteFileInSeconds}}
+		bgWorker.AddJob(job)
+
 		successUrl := fmt.Sprintf("/success/%s", link)
 		http.Redirect(w, r, successUrl, http.StatusSeeOther)
 	}
 }
 
-func downloadFile(db *gorm.DB) http.HandlerFunc {
+func downloadFile(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		link := vars["link"]
@@ -111,7 +106,11 @@ func downloadFile(db *gorm.DB) http.HandlerFunc {
 			fileLink.Expired = true
 			db.Save(&fileLink)
 
-			deleteFile(fileLink.PathToFile)
+			err := deleteFile(fileLink.PathToFile)
+			bgWorker.RemoveJob(link)
+			if err != nil {
+				log.Println(err.Error())
+			}
 
 			http.Error(w, "Link expired", http.StatusUnprocessableEntity)
 			return
@@ -130,6 +129,7 @@ func downloadFile(db *gorm.DB) http.HandlerFunc {
 		db.Save(&fileLink)
 
 		err = deleteFile(fileLink.PathToFile)
+		bgWorker.RemoveJob(link)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
