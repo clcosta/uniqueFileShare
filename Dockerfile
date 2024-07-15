@@ -15,4 +15,5 @@ WORKDIR /app
 COPY --from=BUILDER /app/public /app/public
 COPY --from=BUILDER /app/shareFile /app/shareFile
 
+EXPOSE 8080
 ENTRYPOINT ["/app/shareFile"]
