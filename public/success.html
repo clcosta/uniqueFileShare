@@ -1,22 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>File Upload Sucessfuly</title>
+    <title>File Upload Successfully</title>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <main>
-        <h1>File Upload Sucessfuly</h1>
-        <p>Your file was uploaded successfully. You can share the link below with your friends:</p>
-        <b><a id="link" href=""></a></b>
-    </main>
-</body>
 
-<script>
-    const url = window.location.href;
-    const linkEl = document.getElementById('link');
-    linkEl.href = url.replace('success', 'd');
-    linkEl.innerText = linkEl.href;
-</script>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+    <div class="text-center p-8 bg-white shadow-lg rounded-lg">
+        <h1 class="text-2xl font-bold mb-4">File Upload Successfully</h1>
+        <p class="mb-6">Your file was uploaded successfully. You can share the link below with your friends:</p>
+        <div class="mb-6">
+            <b><a id="link" href="" class="text-blue-500 underline break-words"></a></b>
+        </div>
+        <button id="copy-button" onclick="copyLink()" class="mt-4 py-2 px-4 bg-red-600 text-white font-bold rounded hover:bg-red-700">
+            Copy Link
+        </button>
+    </div>
+
+    <script>
+        const url = window.location.href;
+        const linkEl = document.getElementById('link');
+        linkEl.href = url.replace('success', 'd');
+        linkEl.innerText = linkEl.href;
+
+        function copyLink() {
+            const textarea = document.createElement('textarea');
+            textarea.value = linkEl.href;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            const button = document.getElementById('copy-button');
+            button.innerHTML = `
+                <div class="flex items-center justify-center space-x-2">
+                    <span>Copied to clipboard</span>
+                    <img src="/static/images/check.png" alt="check icon" width="24px" height="24px">
+                </div>
+            `;
+            button.classList.remove('bg-red-600', 'hover:bg-red-700');
+            button.classList.add('bg-green-600', 'hover:bg-green-700');
+        }
+    </script>
+</body>
 
 </html>

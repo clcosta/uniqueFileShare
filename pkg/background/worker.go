@@ -8,6 +8,7 @@ import (
 type Job struct {
 	Identifier string
 	Job        func(args ...interface{}) error
+	CallBack   func() error
 	Args       []interface{}
 }
 
@@ -34,6 +35,13 @@ func (w *Worker) Run() {
 				if err != nil {
 					log.Println("Error in job", job.Identifier, err)
 				}
+				if job.CallBack != nil {
+					err = job.CallBack()
+					log.Println("Running job callback", job.Identifier)
+					if err != nil {
+						log.Println("Error in job callback", job.Identifier, err)
+					}
+				}
 			}(job)
 		}
 	}()
@@ -46,8 +54,10 @@ func (w *Worker) AddJob(job Job) {
 
 func (w *Worker) RemoveJob(identifier string) {
 	w.mu.Lock()
-	log.Println("Remove job", identifier)
-	w.cancellations[identifier] = true
+	if !w.cancellations[identifier] {
+		log.Println("Remove job", identifier)
+		w.cancellations[identifier] = true
+	}
 	w.mu.Unlock()
 }
 

@@ -2,13 +2,14 @@ package server
 
 import (
 	"fmt"
-	"github.com/clcosta/uniqueShareFile/pkg/background"
-	"github.com/clcosta/uniqueShareFile/pkg/fileHandler"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/clcosta/uniqueShareFile/pkg/background"
+	"github.com/clcosta/uniqueShareFile/pkg/fileHandler"
 
 	"github.com/clcosta/uniqueShareFile/internal/database"
 	"github.com/google/uuid"
@@ -21,23 +22,21 @@ var FileHandler = fileHandler.NewFileHandler()
 const TimeToDeleteFileInSeconds = 60 * 5 // 5 minutes
 const FileSizeLimit = 2 << 20            // 2MB
 
-func homePage(w http.ResponseWriter, r *http.Request) {
+func homePageHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./public/index.html")
 }
 
-func successUploadPage(db *gorm.DB) http.HandlerFunc {
+func successUploadPageHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		vars := mux.Vars(r)
 		link := vars["link"]
-		var fileLink database.FileLink
-
-		res := db.Where("link = ?", link).First(&fileLink)
-		if res.Error != nil {
-			http.Error(w, res.Error.Error(), http.StatusInternalServerError)
+		fileLink, err := database.GetFileLink(db, link)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if res.RowsAffected == 0 {
+		if fileLink == nil {
 			http.Error(w, "Link not found", http.StatusNotFound)
 			return
 		}
@@ -45,7 +44,7 @@ func successUploadPage(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
-func uploadForm(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
+func uploadFormHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseMultipartForm(FileSizeLimit) // Define limit to 2MB
 		if err != nil {
@@ -58,6 +57,12 @@ func uploadForm(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		if handler.Size > FileSizeLimit {
+			http.Error(w, "File size is greater than 2MB", http.StatusUnprocessableEntity)
+			return
+		}
+
 		defer file.Close()
 
 		filePath := filepath.Join("tmp", handler.Filename)
@@ -76,12 +81,18 @@ func uploadForm(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 			ExpiresAt:  time.Now().Add(1 * time.Hour),
 		}
 
-		res := db.Create(&fileLink)
-		if res.Error != nil {
-			http.Error(w, res.Error.Error(), http.StatusInternalServerError)
-			return
+		err = database.AddFileLink(db, &fileLink)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		job := background.Job{Identifier: link, Job: FileHandler.DeleteFile, Args: []interface{}{filePath, TimeToDeleteFileInSeconds}}
+		job := background.Job{
+			Identifier: link,
+			Job:        FileHandler.DeleteFile,
+			Args:       []interface{}{filePath, TimeToDeleteFileInSeconds},
+			CallBack: func() error {
+				return database.ExpireFileLink(db, link)
+			},
+		}
 		bgWorker.AddJob(job)
 
 		successUrl := fmt.Sprintf("/success/%s", link)
@@ -89,32 +100,31 @@ func uploadForm(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 	}
 }
 
-func downloadFile(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
+func downloadFileHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		link := vars["link"]
-		var fileLink database.FileLink
 
-		res := db.Where("link = ?", link).First(&fileLink)
-		if res.Error != nil {
-			http.Error(w, res.Error.Error(), http.StatusInternalServerError)
+		fileLink, err := database.GetFileLink(db, link)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if res.RowsAffected == 0 {
+		if fileLink == nil {
 			http.Error(w, "Link not found", http.StatusNotFound)
 			return
 		}
 
 		if fileLink.Expired || fileLink.ExpiresAt.Before(time.Now()) {
-			fileLink.Expired = true
-			db.Save(&fileLink)
-
-			err := FileHandler.DeleteFile(fileLink.PathToFile)
-			bgWorker.RemoveJob(link)
-			if err != nil {
-				log.Println(err.Error())
+			if !fileLink.Expired {
+				fileLink.Expired = true
+				db.Save(&fileLink)
+				err := FileHandler.DeleteFile(fileLink.PathToFile)
+				if err != nil {
+					log.Println(err.Error())
+				}
 			}
-
+			bgWorker.RemoveJob(link)
 			http.Error(w, "Link expired", http.StatusUnprocessableEntity)
 			return
 		}

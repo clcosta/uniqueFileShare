@@ -17,3 +17,28 @@ func GetDB() *gorm.DB {
 	}
 	return db
 }
+
+func AddFileLink(db *gorm.DB, fileLink *FileLink) error {
+	res := db.Create(&fileLink)
+	if res.Error != nil {
+		return res.Error
+	}
+	return nil
+}
+
+func GetFileLink(db *gorm.DB, link string) (*FileLink, error) {
+	var fileLink FileLink
+	res := db.Model(FileLink{}).Where("link = ?", link).First(&fileLink)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	return &fileLink, nil
+}
+
+func ExpireFileLink(db *gorm.DB, link string) error {
+	res := db.Model(FileLink{}).Where("link = ?", link).Update("expired", true)
+	if res.Error != nil {
+		return res.Error
+	}
+	return nil
+}
