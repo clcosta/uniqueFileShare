@@ -173,7 +173,6 @@ func statsHandler(db *gorm.DB) http.HandlerFunc {
 			return
 		}
 		expiresInSeconds := int(time.Until(fileLink.ExpiresAt).Seconds())
-		fmt.Println(expiresInSeconds)
 		if expiresInSeconds < 0 {
 			expiresInSeconds = 0
 		}
