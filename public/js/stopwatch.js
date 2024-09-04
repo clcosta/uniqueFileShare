@@ -14,6 +14,7 @@ class Stopwatch {
         timerElement.classList.add("text-green-600");
         if (endTimeInSeconds <= 0) {
             timerElement.innerText = "Link Expired!";
+            timerElement.classList.remove("text-green-600");
             timerElement.classList.add("text-red-500");
             return;
         }

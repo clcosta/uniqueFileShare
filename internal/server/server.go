@@ -26,8 +26,10 @@ func (s *Server) RunServer(db *gorm.DB, worker *background.Worker) {
 
 	router := mux.NewRouter()
 	router.PathPrefix("/static/").Handler((http.StripPrefix("/static/", http.FileServer(http.Dir("./public/")))))
+	router.HandleFunc("/expired", LoggerMiddleware(s.Logger, expiredPageHandler)).Methods("GET")
 	router.HandleFunc("/success/{link}", LoggerMiddleware(s.Logger, successUploadPageHandler(db))).Methods("GET")
 	router.HandleFunc("/upload", LoggerMiddleware(s.Logger, uploadFormHandler(db, worker))).Methods("POST")
+	router.HandleFunc("/download/{link}", LoggerMiddleware(s.Logger, downloadPageHandler)).Methods("GET")
 	router.HandleFunc("/d/{link}", LoggerMiddleware(s.Logger, downloadFileHandler(db, worker))).Methods("GET")
 	router.HandleFunc("/stats/{link}", LoggerMiddleware(s.Logger, statsHandler(db))).Methods("GET")
 	router.HandleFunc("/", LoggerMiddleware(s.Logger, homePageHandler)).Methods("GET")

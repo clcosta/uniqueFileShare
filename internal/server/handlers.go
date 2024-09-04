@@ -21,7 +21,7 @@ import (
 var FileHandler = fileHandler.NewFileHandler()
 
 const TimeToDeleteFileInSeconds = 60 * 5 // 5 minutes
-const FileSizeLimit = 2 << 20            // 2MB
+const FileSizeLimit = 20 << 20           // 20MB
 
 type Stats struct {
 	Link             string
@@ -66,7 +66,7 @@ func uploadFormHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFun
 		}
 
 		if handler.Size > FileSizeLimit {
-			http.Error(w, "File size is greater than 2MB", http.StatusUnprocessableEntity)
+			http.Error(w, "File size is greater than 20MB", http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -97,7 +97,12 @@ func uploadFormHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFun
 			Job:        FileHandler.DeleteFile,
 			Args:       []interface{}{filePath, TimeToDeleteFileInSeconds},
 			CallBack: func() error {
-				return database.ExpireFileLink(db, link)
+				err := database.ExpireFileLink(db, link)
+				if err != nil {
+					return err
+				}
+				bgWorker.RemoveJob(link)
+				return nil
 			},
 		}
 		bgWorker.AddJob(job)
@@ -105,6 +110,14 @@ func uploadFormHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFun
 		successUrl := fmt.Sprintf("/success/%s", link)
 		http.Redirect(w, r, successUrl, http.StatusSeeOther)
 	}
+}
+
+func downloadPageHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./public/download.html")
+}
+
+func expiredPageHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./public/expired.html")
 }
 
 func downloadFileHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerFunc {
@@ -132,7 +145,7 @@ func downloadFileHandler(db *gorm.DB, bgWorker *background.Worker) http.HandlerF
 				}
 			}
 			bgWorker.RemoveJob(link)
-			http.Error(w, "Link expired", http.StatusUnprocessableEntity)
+			http.Redirect(w, r, "/expired", http.StatusPermanentRedirect)
 			return
 		}
 		file, err := os.Open(fileLink.PathToFile)

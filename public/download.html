@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Your file it's ready!</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/UniqueShareFile.ico" />
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+    <div class="text-center p-8 bg-white shadow-lg rounded-lg">
+        <h1 class="text-2xl font-bold mb-4">Your friend sent this file for you!</h1>
+        <p class="mb-6">Click in the button bellow to download this file:</p>
+        <a id="download-button" href="#" target="_blank" class="mt-5 py-2 px-4 bg-green-600 text-white font-bold rounded hover:bg-green-700">
+            Download
+        </a>
+        <legend class="text-sm text-red-500 mt-7 mb-2">We are not responsible for the content of the file!</legend>
+        <div class="mb-6">
+            <b><h4>This file will stay up for: <span id="stopwatch"></span></h4></b>
+        </div>
+    </div>
+
+    <script src="/static/js/download.js"></script>
+    <script src="/static/js/stopwatch.js"></script>
+</body>
+
+</html>

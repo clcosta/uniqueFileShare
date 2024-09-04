@@ -1,6 +1,6 @@
 const url = window.location.href;
 const linkEl = document.getElementById('link');
-linkEl.href = url.replace('success', 'd');
+linkEl.href = url.replace('success', 'download');
 linkEl.innerText = linkEl.href;
 
 function copyLink() {
